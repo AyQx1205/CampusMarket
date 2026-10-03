@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Query
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, OptionalUser
 from app.core.exceptions import NotFoundError, success
 from app.crud import user_crud
 from app.models.enums import ProductStatus
@@ -29,13 +29,20 @@ async def update_me(
 @router.get("/{user_id}/products", summary="某人发布的商品")
 async def list_user_products(
     db: DbSession,
+    current_user: OptionalUser,
     user_id: int,
-    status: ProductStatus = Query(ProductStatus.ON_SALE, description="商品状态"),
+    status: ProductStatus | None = Query(
+        None, description="商品状态；不传时本人可见全部（含下架/已售），他人仅见在售"
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ) -> dict:
     if await user_crud.get_by_id(db, user_id) is None:
         raise NotFoundError("用户不存在")
+    # 默认可见性：本人（「我的商品」管理页）需要看到下架/已售等全部状态，
+    # 否则无法重新上架；他人只看在售，避免暴露卖家主动下架的商品
+    if status is None and (current_user is None or current_user.id != user_id):
+        status = ProductStatus.ON_SALE
     result = await product_service.list_seller_products(
         db, user_id, status, page, page_size
     )

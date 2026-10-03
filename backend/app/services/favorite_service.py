@@ -1,5 +1,6 @@
 """收藏服务。"""
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
@@ -14,11 +15,18 @@ async def add_favorite(db: AsyncSession, user: User, product_id: int) -> None:
     product = await product_crud.get_by_id(db, product_id)
     if product is None:
         raise NotFoundError("商品不存在")
+    # 先查一次给出干净提示；并发下仍可能双双通过，由唯一约束兜底（见下）
     if await favorite_crud.get(db, user.id, product_id):
         raise ConflictError("已收藏该商品")
 
-    await favorite_crud.add(db, user.id, product_id)
-    product.favorite_count += 1  # 冗余计数，随请求事务一起提交
+    try:
+        await favorite_crud.add(db, user.id, product_id)
+    except IntegrityError:
+        # (user_id, product_id) 唯一约束冲突 = 并发重复收藏，
+        # 转成业务冲突（409）而不是让 IntegrityError 冒泡成 500
+        raise ConflictError("已收藏该商品") from None
+
+    await product_crud.adjust_favorite_count(db, product_id, 1)
     await cache_service.invalidate_product_detail(product_id)
 
 
@@ -28,9 +36,7 @@ async def remove_favorite(db: AsyncSession, user: User, product_id: int) -> None
         raise NotFoundError("尚未收藏该商品")
 
     await favorite_crud.remove(db, favorite)
-    product = await product_crud.get_by_id(db, product_id)
-    if product is not None and product.favorite_count > 0:
-        product.favorite_count -= 1
+    await product_crud.adjust_favorite_count(db, product_id, -1)
     await cache_service.invalidate_product_detail(product_id)
 
 

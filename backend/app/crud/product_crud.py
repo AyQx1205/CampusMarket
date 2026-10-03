@@ -19,6 +19,25 @@ async def get_by_id(db: AsyncSession, product_id: int) -> Product | None:
     return await db.get(Product, product_id)
 
 
+async def get_by_id_for_update(db: AsyncSession, product_id: int) -> Product | None:
+    """行锁读取（SELECT ... FOR UPDATE）。
+
+    下单专用：把「读状态 → 判断可售 → 改为已预订」串行化，
+    并发请求会在锁上排队，后到者拿到的已是 RESERVED，从而拒绝下单。
+
+    populate_existing：同一会话此前可能已加载过该商品（如 AI 助手先调
+    get_product_detail 再下单），强制用库里的最新行覆盖内存对象，
+    否则会拿陈旧状态通过校验。
+    """
+    result = await db.execute(
+        select(Product)
+        .where(Product.id == product_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
+
+
 def _apply_filters(stmt: select, params: ProductSearchParams) -> select:
     if params.keyword:
         # ilike '%kw%' 可命中 pg_trgm GIN 索引（gin_trgm_ops）
@@ -80,6 +99,18 @@ async def increment_view(db: AsyncSession, product_id: int) -> None:
         update(Product)
         .where(Product.id == product_id)
         .values(view_count=Product.view_count + 1)
+    )
+
+
+async def adjust_favorite_count(db: AsyncSession, product_id: int, delta: int) -> None:
+    """收藏数原子增减（不加载 ORM 对象，避免并发下丢失更新）。
+
+    greatest(..., 0) 兜底并发取消收藏导致的重复扣减，防止计数变负。
+    """
+    await db.execute(
+        update(Product)
+        .where(Product.id == product_id)
+        .values(favorite_count=func.greatest(Product.favorite_count + delta, 0))
     )
 
 

@@ -171,8 +171,8 @@ async def create_listing(
 async def list_my_products(config: RunnableConfig) -> str:
     """查看当前用户（卖家）自己发布的商品列表及状态。"""
     db, user = _ctx(config)
-    # 服务层标注为 ProductStatus；传 None 时运行时等价于"不过滤状态"（crud 支持），用于返回全部
-    result = await product_service.list_seller_products(db, user.id, None, page=1, page_size=20)  # type: ignore[arg-type]
+    # status=None：不过滤状态，返回该卖家的全部商品
+    result = await product_service.list_seller_products(db, user.id, None, page=1, page_size=20)
     return _dump({"total": result.total, "items": [i.model_dump(mode="json", include=_BRIEF_FIELDS) for i in result.items]})
 
 

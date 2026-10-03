@@ -34,7 +34,9 @@ def _generate_order_no() -> str:
 
 
 async def create_order(db: AsyncSession, buyer: User, data: OrderCreate) -> OrderOut:
-    product = await product_crud.get_by_id(db, data.product_id)
+    # 行锁读取：下面的「校验可售 → 置为已预订」必须与并发下单互斥，
+    # 否则两个请求都能读到 ON_SALE 并各自建单（超卖）
+    product = await product_crud.get_by_id_for_update(db, data.product_id)
     if product is None:
         raise NotFoundError("商品不存在")
     if product.status != ProductStatus.ON_SALE:

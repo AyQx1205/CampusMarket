@@ -29,5 +29,12 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true, // WSL 下允许从 Windows 侧浏览器访问
+    // 开发代理：把 /api 转发到后端，浏览器侧变成同源请求，彻底绕开 CORS
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
   },
 })

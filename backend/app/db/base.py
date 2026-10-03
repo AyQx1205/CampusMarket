@@ -38,7 +38,16 @@ class PkMixin:
 
 
 class TimestampMixin:
-    """created_at / updated_at 时间戳（服务端 now() 生成）。"""
+    """created_at / updated_at 时间戳（服务端 now() 生成）。
+
+    eager_defaults=True：UPDATE 时让 PG 走 "UPDATE ... RETURNING" 把
+    onupdate=func.now() 产生的新 updated_at 一并取回。
+    默认值 "auto" 只对 INSERT 启用 RETURNING，UPDATE 后 SQLAlchemy 会把
+    updated_at 标记为过期；随后序列化（ProductOut.model_validate）读该属性
+    会触发懒加载 IO，在 async 下直接抛 MissingGreenlet → 接口 500。
+    """
+
+    __mapper_args__ = {"eager_defaults": True}
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

@@ -126,10 +126,11 @@ async def hot(db: AsyncSession, limit: int = 10) -> list[ProductOut]:
 async def list_seller_products(
     db: AsyncSession,
     seller_id: int,
-    status: ProductStatus,
+    status: ProductStatus | None,
     page: int,
     page_size: int,
 ) -> Page[ProductOut]:
+    """某卖家发布的商品；status 传 None 表示不过滤（返回全部状态）。"""
     items, total = await product_crud.list_by_seller(
         db, seller_id, status, page, page_size
     )
