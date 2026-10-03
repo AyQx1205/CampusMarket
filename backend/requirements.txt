@@ -1,0 +1,40 @@
+# ==================== Web 框架 ====================
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# ==================== ORM / 数据库 ====================
+sqlalchemy[asyncio]>=2.0.35
+asyncpg>=0.30.0
+alembic>=1.14.0
+
+# ==================== 数据校验 / 配置 ====================
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+
+# ==================== 认证 ====================
+python-jose[cryptography]>=3.3.0
+# core/security.py 使用 PasswordHash.recommended()，pwdlib 0.2+ 的 recommended()
+# 固定使用 Argon2id（OWASP 首选算法），因此必须装 argon2 extra，否则启动即报错
+pwdlib[argon2,bcrypt]>=0.2.0
+bcrypt>=4.0.0
+
+# ==================== 缓存 / 会话 ====================
+redis>=5.0.0
+
+# ==================== AI ====================
+# 注意：不要单独列出 langgraph，它是 langchain 1.0 的传递依赖，自动安装。
+# create_agent（langchain.agents）跑在 LangGraph 运行时之上，无需显式依赖。
+langchain>=1.0.0
+langchain-openai>=0.3.0
+langchain-community>=0.4.0
+
+# ==================== 日志 ====================
+loguru>=0.7.0
+
+# ==================== 其他 ====================
+python-multipart>=0.0.12
+httpx>=0.28.0
+
+# ==================== 测试 ====================
+pytest>=8.3.0
+pytest-asyncio>=0.24.0

@@ -1,0 +1,31 @@
+/* 设计变量（全局唯一出处；组件内用 var(--xxx) 引用） */
+:root {
+  /* 主色调：青绿色（年轻感） */
+  --color-primary: #10b981;
+  --color-primary-dark: #059669;
+  --color-primary-light: #d1fae5;
+
+  /* 文字 */
+  --color-text: #1f2937;
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+
+  /* 背景 / 边框 */
+  --color-bg: #f6f8fa;
+  --color-bg-card: #ffffff;
+  --color-border: #e5e7eb;
+  --color-danger: #ef4444;
+
+  /* 圆角：全局 8px */
+  --radius-base: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+
+  /* 柔和阴影（卡片） */
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.06);
+  --shadow-card-hover: 0 6px 20px rgba(16, 185, 129, 0.16);
+
+  /* 布局 */
+  --header-height: 60px;
+  --content-max-width: 1200px;
+}
