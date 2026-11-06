@@ -17,10 +17,20 @@ const {
   send,
   sendQuick,
   retry,
+  reset,
   toggle,
 } = useAiChat()
 
 const listRef = ref<HTMLElement>()
+
+/** Enter 发送、Shift+Enter 换行；输入法组合期间的 Enter 交给 IME */
+function handleEnter(event: KeyboardEvent): void {
+  if (event.isComposing) {
+    return
+  }
+  event.preventDefault()
+  void send()
+}
 
 /** 消息变化（新增/占位更新完成）时滚到底部 */
 watch(
@@ -43,6 +53,7 @@ watch(
       <header class="panel-head">
         <span class="title">校园小助手</span>
         <span class="subtitle">有问必答的二手交易向导</span>
+        <el-button class="close" text :disabled="sending" @click="reset">新会话</el-button>
         <el-button class="close" text @click="toggle">关闭</el-button>
       </header>
 
@@ -89,8 +100,9 @@ watch(
             :autosize="{ minRows: 1, maxRows: 4 }"
             placeholder="输入你想问的..."
             resize="none"
+            maxlength="2000"
             :disabled="sending"
-            @keydown.enter.exact.prevent="send"
+            @keydown.enter.exact="handleEnter"
           />
           <el-button
             class="send"

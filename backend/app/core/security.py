@@ -13,24 +13,30 @@ from uuid import uuid4
 from jose import JWTError, jwt
 from jose.exceptions import ExpiredSignatureError
 from pwdlib import PasswordHash
+from pwdlib.hashers.argon2 import Argon2Hasher
+from pwdlib.hashers.bcrypt import BcryptHasher
 
 from app.core.config import settings
 from app.core.exceptions import TokenExpiredError, TokenInvalidError
 
-# bcrypt 是当前最稳妥的默认选择（PasswordHash.recommended() 亦返回 bcrypt 哈希器）
-_password_hasher = PasswordHash.recommended()
+# 新密码用 Argon2id；同时保留 BcryptHasher 以兼容历史 bcrypt 哈希。
+# 顺序有意义：verify 会依次尝试，新 hash 始终由第一个（Argon2）生成。
+_password_hasher = PasswordHash((Argon2Hasher(), BcryptHasher()))
 
 
 # ---------------- 密码哈希 ----------------
 
 def hash_password(password: str) -> str:
-    """生成密码哈希（bcrypt）。"""
+    """生成密码哈希（Argon2id）。"""
     return _password_hasher.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """校验明文密码与哈希是否匹配。"""
-    return _password_hasher.verify(plain_password, hashed_password)
+    """校验明文密码与哈希是否匹配；哈希格式损坏时按校验失败处理。"""
+    try:
+        return _password_hasher.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 
 # ---------------- JWT ----------------
@@ -89,5 +95,8 @@ def decode_token(token: str) -> dict[str, Any]:
         raise TokenInvalidError from exc
 
     if payload.get("type") not in ("access", "refresh"):
+        raise TokenInvalidError
+    # 我们签发的 token 一定带 sub/jti；缺失说明 payload 被裁剪或来源异常
+    if not payload.get("sub") or not payload.get("jti"):
         raise TokenInvalidError
     return payload

@@ -15,7 +15,13 @@ defineProps<{
     <div class="product-card hover-card">
       <!-- 首图缺失时用占位块 -->
       <div class="thumb">
-        <img v-if="product.images.length" :src="product.images[0]" :alt="product.title" />
+        <img
+          v-if="product.images.length"
+          :src="product.images[0]"
+          :alt="product.title"
+          loading="lazy"
+          referrerpolicy="no-referrer"
+        />
         <span v-else class="thumb-placeholder">暂无图片</span>
       </div>
 

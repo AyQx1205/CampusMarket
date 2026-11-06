@@ -20,8 +20,8 @@ class ParsedFilters(BaseModel):
     """
 
     keyword: Optional[str] = Field(None, description="核心品类词")
-    min_price: Optional[float] = Field(None, ge=0, description="最低价（元）")
-    max_price: Optional[float] = Field(None, ge=0, description="最高价（元）")
+    min_price: Optional[float] = Field(None, allow_inf_nan=False, description="最低价（元）")
+    max_price: Optional[float] = Field(None, allow_inf_nan=False, description="最高价（元）")
     campus: Optional[str] = Field(None, description="校区")
     sort: ProductSort = Field(ProductSort.LATEST, description="排序方式")
 
@@ -48,4 +48,7 @@ class ParsedFilters(BaseModel):
 async def parse_search(query: str) -> ParsedFilters:
     """把「想买个 300 以内的自行车，东校区取」解析成结构化筛选。"""
     structured = get_structured_llm(ParsedFilters)
-    return await structured.ainvoke(SEARCH_PARSER_PROMPT.format(query=query))
+    parsed = await structured.ainvoke(SEARCH_PARSER_PROMPT.format(query=query))
+    if parsed is None:
+        raise ValueError("LLM 未返回结构化搜索条件")
+    return parsed

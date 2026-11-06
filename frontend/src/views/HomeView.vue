@@ -16,8 +16,11 @@ const total = ref(0)
 const products = ref<ProductDetail[]>([])
 const loading = ref(false)
 const failed = ref(false)
+/** 请求序号：只接受最后一次请求的结果，避免快速筛选时旧响应覆盖新响应 */
+let requestSeq = 0
 
 async function fetchProducts(): Promise<void> {
+  const seq = ++requestSeq
   loading.value = true
   failed.value = false
   try {
@@ -26,13 +29,19 @@ async function fetchProducts(): Promise<void> {
       page: page.value,
       page_size: PAGE_SIZE,
     })
+    if (seq !== requestSeq) {
+      return
+    }
     products.value = result.items
     total.value = result.total
   } catch {
-    // 错误提示由 request.ts 拦截器统一弹出，这里只切换视图状态
-    failed.value = true
+    if (seq === requestSeq) {
+      failed.value = true
+    }
   } finally {
-    loading.value = false
+    if (seq === requestSeq) {
+      loading.value = false
+    }
   }
 }
 

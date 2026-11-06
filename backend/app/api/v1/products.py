@@ -9,6 +9,7 @@ from app.core.exceptions import success
 from app.schemas.product import (
     ProductCreate,
     ProductSearchParams,
+    ProductStatusUpdate,
     ProductUpdate,
 )
 from app.services import favorite_service, product_service
@@ -49,12 +50,31 @@ async def get_product(db: DbSession, product_id: int) -> dict:
     return success(detail.model_dump(mode="json"))
 
 
-@router.patch("/{product_id}", summary="修改商品（仅卖家）")
+@router.patch("/{product_id}", summary="修改商品（仅卖家；不含状态）")
 async def update_product(
     db: DbSession, current_user: CurrentUser, product_id: int, data: ProductUpdate
 ) -> dict:
     detail = await product_service.update(db, current_user, product_id, data)
     return success(detail.model_dump(mode="json"))
+
+
+@router.patch("/{product_id}/status", summary="上下架/标记已售（仅卖家）")
+async def update_product_status(
+    db: DbSession,
+    current_user: CurrentUser,
+    product_id: int,
+    data: ProductStatusUpdate,
+) -> dict:
+    detail = await product_service.update_status(db, current_user, product_id, data)
+    return success(detail.model_dump(mode="json"))
+
+
+@router.get("/{product_id}/favorite", summary="当前用户是否已收藏该商品")
+async def get_favorite_status(
+    db: DbSession, current_user: CurrentUser, product_id: int
+) -> dict:
+    favorited = await favorite_service.is_favorited(db, current_user, product_id)
+    return success({"favorited": favorited})
 
 
 @router.delete("/{product_id}", summary="删除商品（仅卖家，有订单时拒绝）")

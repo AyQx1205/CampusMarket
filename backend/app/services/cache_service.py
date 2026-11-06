@@ -45,9 +45,14 @@ async def invalidate_product_detail(product_id: int) -> None:
 
 
 async def incr_hot_score(product_id: int, delta: float = 1.0) -> None:
-    """热门榜分数 +1（浏览时调用）。"""
+    """热门榜分数 +1（浏览时调用），并把榜单裁剪到最多 1000 条。"""
     try:
-        await _redis().zincrby(RedisKeys.PRODUCT_HOT, delta, str(product_id))
+        redis = _redis()
+        pipe = redis.pipeline()
+        pipe.zincrby(RedisKeys.PRODUCT_HOT, delta, str(product_id))
+        # 只保留分数最高的 1000 条，避免 ZSet 无限增长
+        pipe.zremrangebyrank(RedisKeys.PRODUCT_HOT, 0, -1001)
+        await pipe.execute()
     except RedisError as exc:
         logger.warning("热门榜写入失败: {}", exc)
 
@@ -56,7 +61,14 @@ async def get_hot_product_ids(limit: int) -> list[int]:
     """热门榜 Top N 商品 id（分数从高到低）。"""
     try:
         members = await _redis().zrevrange(RedisKeys.PRODUCT_HOT, 0, limit - 1)
-        return [int(m) for m in members]
     except RedisError as exc:
         logger.warning("热门榜读取失败: {}", exc)
         return []
+    ids: list[int] = []
+    for member in members:
+        try:
+            ids.append(int(member))
+        except (TypeError, ValueError):
+            # 脏数据（如手工写入的非数字 member）跳过，不影响整榜
+            continue
+    return ids

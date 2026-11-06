@@ -31,8 +31,15 @@ async function handleSubmit(): Promise<void> {
   submitting.value = true
   try {
     await userStore.login({ student_no: form.studentNo.trim(), password: form.password })
-    // 登录成功后回跳来源页（守卫跳登录时带上的 redirect）
-    const redirect = String(route.query.redirect ?? '/')
+    // 登录成功后回跳来源页（守卫跳登录时带上的 redirect）；
+    // 只接受站内绝对路径，避免 ?redirect=//evil.com 之类的开放重定向
+    const rawRedirect = String(route.query.redirect ?? '/')
+    const redirect =
+      rawRedirect.startsWith('/') &&
+      !rawRedirect.startsWith('//') &&
+      !rawRedirect.includes('\\')
+        ? rawRedirect
+        : '/'
     router.replace(redirect)
   } catch {
     // 错误提示（如「学号或密码错误」）由 request.ts 拦截器统一弹出
@@ -55,7 +62,7 @@ async function handleSubmit(): Promise<void> {
         @submit.prevent="handleSubmit"
       >
         <el-form-item label="学号" prop="studentNo">
-          <el-input v-model="form.studentNo" placeholder="请输入学号" clearable />
+          <el-input v-model="form.studentNo" placeholder="请输入学号" maxlength="32" clearable />
         </el-form-item>
         <el-form-item label="密码" prop="password">
           <el-input
@@ -63,6 +70,7 @@ async function handleSubmit(): Promise<void> {
             type="password"
             placeholder="请输入密码"
             show-password
+            maxlength="64"
             @keyup.enter="handleSubmit"
           />
         </el-form-item>

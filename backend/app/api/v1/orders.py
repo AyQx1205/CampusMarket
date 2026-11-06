@@ -34,7 +34,15 @@ async def list_orders(
     return success(result.model_dump(mode="json"))
 
 
-@router.patch("/{order_id}/status", summary="流转订单状态（买卖双方均可操作）")
+@router.get("/{order_id}", summary="订单详情（含交易对手联系方式）")
+async def get_order(
+    db: DbSession, current_user: CurrentUser, order_id: int
+) -> dict:
+    order = await order_service.get_order(db, current_user, order_id)
+    return success(order.model_dump(mode="json"))
+
+
+@router.patch("/{order_id}/status", summary="流转订单状态（按买卖双方角色校验）")
 async def update_order_status(
     db: DbSession, current_user: CurrentUser, order_id: int, data: OrderStatusUpdate
 ) -> dict:

@@ -1,12 +1,17 @@
 {
   "name": "campus-market",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "version": "0.1.0",
+  "private": true,
+  "description": "校园二手交易平台（FastAPI + Vue 3）",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "scripts": {
+    "dev": "pnpm --dir frontend dev",
+    "build": "pnpm --dir frontend build",
+    "lint": "pnpm --dir frontend lint",
+    "format": "pnpm --dir frontend format",
+    "preview": "pnpm --dir frontend preview"
+  }
 }

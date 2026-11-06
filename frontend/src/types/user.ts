@@ -12,14 +12,25 @@ export interface UserProfile {
   created_at: string
 }
 
-/** 公开用户信息（商品/订单里嵌套展示，对应后端 UserOut） */
-export interface UserBrief {
+/** 公开用户信息（商品详情卖家卡展示，对应后端 UserOut） */
+export interface UserPublic {
   id: number
   nickname: string
   avatar_url: string | null
   campus: string | null
   credit_score: number
   created_at: string
+}
+
+/** 订单参与者联系方式（仅买卖双方可见，对应后端 UserContact） */
+export interface OrderContact {
+  id: number
+  nickname: string
+  avatar_url: string | null
+  campus: string | null
+  phone: string | null
+  email: string | null
+  credit_score: number
 }
 
 /** 登录/刷新成功返回的令牌对（对应后端 TokenPair） */

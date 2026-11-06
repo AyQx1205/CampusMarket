@@ -87,6 +87,18 @@ class RateLimitError(BizException):
     code = 429
     message = "请求太频繁，请稍后再试"
 
+    def __init__(self, message: str | None = None, *, retry_after: int = 60) -> None:
+        self.retry_after = max(1, retry_after)
+        super().__init__(message)
+
+
+class ServiceUnavailableError(BizException):
+    """依赖服务（Redis 等）不可用：可重试，不应伪装成 500。"""
+
+    status_code = 503
+    code = 503
+    message = "服务暂时不可用，请稍后再试"
+
 
 class AIServiceError(BizException):
     """LLM 调用失败时的降级异常：不影响主交易流程，返回友好提示。"""
@@ -103,9 +115,13 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def biz_exception_handler(request: Request, exc: BizException) -> JSONResponse:
         # 业务异常属预期行为，记 info 便于排查但不刷 error
         logger.info("业务异常: code={} message={} path={}", exc.code, exc.message, request.url.path)
+        headers = None
+        if isinstance(exc, RateLimitError):
+            headers = {"Retry-After": str(exc.retry_after)}
         return JSONResponse(
             status_code=exc.status_code,
             content=_error_body(exc.code, exc.message),
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

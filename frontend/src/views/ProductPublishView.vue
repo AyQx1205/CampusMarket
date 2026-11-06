@@ -1,19 +1,25 @@
 <script setup lang="ts">
 /** 发布商品：手工表单 + 「AI 帮我写」文案生成（POST /ai/listing/generate）。 */
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { MagicStick, Delete, Plus } from '@element-plus/icons-vue'
 
+import { listCategories } from '@/api/category'
 import { createProduct } from '@/api/product'
 import { generateListing } from '@/api/ai'
 import { BizError } from '@/api/request'
-import { CONDITION_LABELS, type ProductCondition } from '@/types/product'
+import {
+  CONDITION_LABELS,
+  type Category,
+  type ProductCondition,
+} from '@/types/product'
 
 const router = useRouter()
 
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
+const categories = ref<Category[]>([])
 
 const form = reactive({
   title: '',
@@ -21,6 +27,7 @@ const form = reactive({
   price: undefined as number | undefined,
   originalPrice: undefined as number | undefined,
   condition: '' as ProductCondition | '',
+  categoryId: undefined as number | undefined,
   campus: '',
   images: [''] as string[],
 })
@@ -35,8 +42,35 @@ const rules: FormRules = {
     { required: true, message: '请输入商品标题', trigger: 'blur' },
     { max: 128, message: '标题最长 128 字', trigger: 'blur' },
   ],
-  price: [{ required: true, message: '请输入售价', trigger: 'blur' }],
+  price: [
+    { required: true, message: '请输入售价', trigger: 'blur' },
+    { type: 'number', min: 0.01, message: '售价必须大于 0', trigger: 'blur' },
+  ],
+  originalPrice: [
+    {
+      validator: (
+        _rule: unknown,
+        value: number | undefined,
+        callback: (error?: string | Error) => void,
+      ) => {
+        if (typeof value === 'number' && typeof form.price === 'number' && value < form.price) {
+          callback(new Error('原价不能低于售价'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
   condition: [{ required: true, message: '请选择成色', trigger: 'change' }],
+}
+
+async function fetchCategories(): Promise<void> {
+  try {
+    categories.value = await listCategories()
+  } catch {
+    categories.value = []
+  }
 }
 
 async function handleSubmit(): Promise<void> {
@@ -52,6 +86,7 @@ async function handleSubmit(): Promise<void> {
       price: form.price as number,
       original_price: form.originalPrice,
       condition: form.condition as ProductCondition,
+      category_id: form.categoryId || undefined,
       campus: form.campus.trim() || undefined,
       images: form.images.map((s) => s.trim()).filter(Boolean),
     })
@@ -62,6 +97,8 @@ async function handleSubmit(): Promise<void> {
     submitting.value = false
   }
 }
+
+onMounted(fetchCategories)
 
 // ---------------- AI 帮我写 ----------------
 
@@ -116,7 +153,14 @@ async function handleGenerate(): Promise<void> {
 }
 
 function addImageRow(): void {
+  if (form.images.length >= 9) {
+    return
+  }
   form.images.push('')
+}
+
+function updateImage(index: number, value: string | number | null | undefined): void {
+  form.images[index] = value == null ? '' : String(value)
 }
 
 function removeImageRow(index: number): void {
@@ -150,8 +194,16 @@ function removeImageRow(index: number): void {
             v-model="form.description"
             type="textarea"
             :rows="4"
+            maxlength="5000"
+            show-word-limit
             placeholder="购买渠道、使用时长、瑕疵情况等"
           />
+        </el-form-item>
+
+        <el-form-item label="分类（选填）" prop="categoryId">
+          <el-select v-model="form.categoryId" placeholder="选择分类" clearable class="full">
+            <el-option v-for="c in categories" :key="c.id" :value="c.id" :label="c.name" />
+          </el-select>
         </el-form-item>
 
         <div class="row">
@@ -159,7 +211,7 @@ function removeImageRow(index: number): void {
             <el-input-number v-model="form.price" :min="0.01" :precision="2" :controls="false" placeholder="0.00" />
           </el-form-item>
           <el-form-item label="原价（选填）" prop="originalPrice">
-            <el-input-number v-model="form.originalPrice" :min="0" :precision="2" :controls="false" placeholder="划线展示" />
+            <el-input-number v-model="form.originalPrice" :min="0.01" :precision="2" :controls="false" placeholder="划线展示" />
           </el-form-item>
         </div>
 
@@ -172,13 +224,18 @@ function removeImageRow(index: number): void {
         </el-form-item>
 
         <el-form-item label="校区（选填）" prop="campus">
-          <el-input v-model="form.campus" placeholder="如：东校区" clearable />
+          <el-input v-model="form.campus" placeholder="如：东校区" maxlength="64" clearable />
         </el-form-item>
 
         <el-form-item label="图片链接（选填，第一张为封面）">
           <div class="image-list">
-            <div v-for="(_, index) in form.images" :key="index" class="image-row">
-              <el-input v-model="form.images[index]" placeholder="https://..." clearable />
+            <div v-for="(image, index) in form.images" :key="index" class="image-row">
+              <el-input
+                :model-value="image"
+                placeholder="https://..."
+                clearable
+                @update:model-value="updateImage(index, $event)"
+              />
               <el-button
                 :icon="Delete"
                 text
@@ -187,7 +244,15 @@ function removeImageRow(index: number): void {
                 @click="removeImageRow(index)"
               />
             </div>
-            <el-button text type="primary" :icon="Plus" @click="addImageRow">添加一张</el-button>
+            <el-button
+              text
+              type="primary"
+              :icon="Plus"
+              :disabled="form.images.length >= 9"
+              @click="addImageRow"
+            >
+              添加一张
+            </el-button>
           </div>
         </el-form-item>
 
@@ -213,14 +278,20 @@ function removeImageRow(index: number): void {
             v-model="aiForm.rawInfo"
             type="textarea"
             :rows="3"
+            maxlength="2000"
+            show-word-limit
             placeholder="例：小米台灯，去年双十一买的，用了不到一年，有点灰没坏"
           />
         </el-form-item>
         <el-form-item label="期望价格（选填）">
-          <el-input-number v-model="aiForm.expectedPrice" :min="0" :precision="2" :controls="false" placeholder="元" />
+          <el-input-number v-model="aiForm.expectedPrice" :min="0.01" :precision="2" :controls="false" placeholder="元" />
         </el-form-item>
         <el-form-item label="成色提示（选填）">
-          <el-input v-model="aiForm.conditionHint" placeholder="如：九成新 / 全新未拆" />
+          <el-input
+            v-model="aiForm.conditionHint"
+            placeholder="如：九成新 / 全新未拆"
+            maxlength="200"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -271,6 +342,10 @@ h2 {
   flex-direction: column;
   gap: 8px;
   align-items: flex-start;
+}
+
+.full {
+  width: 100%;
 }
 
 .image-row {

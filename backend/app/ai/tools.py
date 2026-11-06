@@ -9,6 +9,7 @@
 
 import json
 from decimal import Decimal
+from enum import Enum
 from typing import Any, Literal, Optional
 
 from langchain_core.runnables import RunnableConfig
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.chains.price_advisor import advise_price
 from app.ai.chains.qa_chain import answer_rules_question
+from app.core.config import settings
 from app.models import User
 from app.models.enums import ProductCondition, ProductStatus
 from app.schemas.order import OrderCreate
@@ -24,7 +26,7 @@ from app.schemas.product import (
     ProductCreate,
     ProductSearchParams,
     ProductSort,
-    ProductUpdate,
+    ProductStatusUpdate,
 )
 from app.services import favorite_service, order_service, product_service
 
@@ -38,7 +40,13 @@ def _ctx(config: RunnableConfig) -> tuple[AsyncSession, User]:
 
 
 def _dump(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, default=str)
+    def _default(value: Any) -> str:
+        # Enum 输出其 value（"lightly_used"），而不是 "ProductCondition.LIGHTLY_USED"
+        if isinstance(value, Enum):
+            return str(value.value)
+        return str(value)
+
+    return json.dumps(data, ensure_ascii=False, default=_default)
 
 
 def _brief(products: list) -> list[dict[str, Any]]:
@@ -60,13 +68,22 @@ async def search_products(
 ) -> str:
     """搜索平台在售商品。可按关键词、价格区间（元）、校区筛选和排序，帮买家快速找货。"""
     db, _ = _ctx(config)
+    lo = Decimal(str(min_price)) if min_price is not None else None
+    hi = Decimal(str(max_price)) if max_price is not None else None
+    if lo is not None and hi is not None and lo > hi:
+        # LLM 偶尔把区间写反；按用户意图交换而不是直接报错
+        lo, hi = hi, lo
+    if lo is not None:
+        lo = max(Decimal("0"), lo)
+    if hi is not None:
+        hi = max(Decimal("0"), hi)
     params = ProductSearchParams(
-        keyword=keyword or None,
-        min_price=Decimal(str(min_price)) if min_price is not None else None,
-        max_price=Decimal(str(max_price)) if max_price is not None else None,
-        campus=campus or None,
+        keyword=(keyword or None) and keyword[:64].strip() or None,
+        min_price=lo,
+        max_price=hi,
+        campus=(campus or None) and campus[:64].strip() or None,
         sort=ProductSort(sort),
-        page=max(1, page),
+        page=min(max(1, page), 100),
         page_size=10,
     )
     result = await product_service.search(db, params)
@@ -161,7 +178,7 @@ async def create_listing(
             description=description or None,
             price=Decimal(str(price)).quantize(Decimal("0.01")),
             condition=ProductCondition(condition),
-            images=images or [],
+            images=(images or [])[:9],
         ),
     )
     return _dump({"product_id": product.id, "title": product.title, "price": str(product.price), "status": product.status.value})
@@ -180,12 +197,15 @@ async def list_my_products(config: RunnableConfig) -> str:
 async def update_my_product_status(
     config: RunnableConfig,
     product_id: int,
-    status: Literal["on_sale", "reserved", "sold", "off_shelf"],
+    status: Literal["on_sale", "sold", "off_shelf"],
 ) -> str:
-    """修改自己商品的状态（重新上架 on_sale / 下架 off_shelf / 已售出 sold）。仅限卖家本人。"""
+    """修改自己商品的状态（重新上架 on_sale / 下架 off_shelf / 已售出 sold）。仅限卖家本人。
+
+    不能手工设置 reserved：预订状态只能由真实订单产生。
+    """
     db, user = _ctx(config)
-    detail = await product_service.update(
-        db, user, product_id, ProductUpdate(status=ProductStatus(status))
+    detail = await product_service.update_status(
+        db, user, product_id, ProductStatusUpdate(status=ProductStatus(status))
     )
     return _dump({"product_id": detail.id, "status": detail.status.value})
 
@@ -195,7 +215,7 @@ async def update_my_product_status(
 
 @tool
 async def get_my_profile(config: RunnableConfig) -> str:
-    """查看当前用户的个人资料（学号、昵称、校区、信用分、是否老年模式等）。"""
+    """查看当前用户的个人资料（昵称、校区、信用分、是否老年模式等；不含学号/联系方式）。"""
     _, user = _ctx(config)
     return _dump(
         {
@@ -243,21 +263,32 @@ async def estimate_price(
 
 
 def build_tools() -> list:
-    """组装主服务 Agent 的全部工具（按买家/卖家/个人/规则/估价分组）。"""
-    return [
+    """组装主服务 Agent 的工具。
+
+    默认只暴露只读工具；下单/发布/改状态/收藏属于会产生副作用的写操作，
+    需要显式设置 AI_ENABLE_WRITE_TOOLS=true 才启用。这样即使模型被提示词
+    注入诱导，也无法在默认配置下替用户花钱或发布内容。
+    """
+    read_only = [
         # 买家
         search_products,
         get_product_detail,
-        create_order,
-        add_favorite,
         list_my_orders,
         # 卖家
-        create_listing,
         list_my_products,
-        update_my_product_status,
         # 个人
         get_my_profile,
         # 平台规则 / 估价
         qa_platform_rules,
         estimate_price,
     ]
+    if not settings.AI_ENABLE_WRITE_TOOLS:
+        return read_only
+
+    write_tools = [
+        create_order,
+        add_favorite,
+        create_listing,
+        update_my_product_status,
+    ]
+    return [*read_only, *write_tools]

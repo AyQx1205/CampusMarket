@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.ai.chains import clear_optional, parse_price
 from app.ai.llm import get_structured_llm
@@ -19,11 +19,17 @@ class PriceAdvice(BaseModel):
     空值/单位兜底：Qwen 可能输出「约50元」「None」等字符串，before 校验器清洗。
     """
 
-    estimated_price: float = Field(gt=0, description="最可能成交价（元）")
-    low: float = Field(gt=0, description="合理区间下限（元）")
-    high: float = Field(gt=0, description="合理区间上限（元）")
+    estimated_price: float = Field(gt=0, allow_inf_nan=False, description="最可能成交价（元）")
+    low: float = Field(gt=0, allow_inf_nan=False, description="合理区间下限（元）")
+    high: float = Field(gt=0, allow_inf_nan=False, description="合理区间上限（元）")
     rationale: str = Field(description="定价依据")
-    tips: list[str] = Field(default_factory=list, description="加快出手建议")
+    tips: list[str] = Field(default_factory=list, max_length=6, description="加快出手建议")
+
+    @model_validator(mode="after")
+    def _check_range(self) -> "PriceAdvice":
+        if not (self.low <= self.estimated_price <= self.high):
+            raise ValueError("估价必须满足 low <= estimated_price <= high")
+        return self
 
     @field_validator("estimated_price", "low", "high", mode="before")
     @classmethod
@@ -53,4 +59,7 @@ async def advise_price(
         original_price=f"{original_price} 元" if original_price else "未提供",
     )
     structured = get_structured_llm(PriceAdvice)
-    return await structured.ainvoke(prompt)
+    advice = await structured.ainvoke(prompt)
+    if advice is None:
+        raise ValueError("LLM 未返回结构化定价建议")
+    return advice

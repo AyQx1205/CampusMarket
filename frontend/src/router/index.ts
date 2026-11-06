@@ -63,4 +63,26 @@ const router = createRouter({
 
 setupRouterGuards(router)
 
+// 正常导航成功后清除 chunk 刷新标记
+router.afterEach(() => {
+  sessionStorage.removeItem('campus:chunk-reload')
+})
+
+// 发版后旧页面仍持有旧 chunk 名，懒加载会 404；捕获一次并整页刷新。
+// 用 sessionStorage 防抖，避免真正故障时无限刷新。
+router.onError((error) => {
+  const message = error instanceof Error ? error.message : String(error)
+  const chunkFailed = /dynamically imported module|Importing a module script failed|Loading chunk/i.test(
+    message,
+  )
+  if (!chunkFailed) {
+    return
+  }
+  if (sessionStorage.getItem('campus:chunk-reload') === '1') {
+    return
+  }
+  sessionStorage.setItem('campus:chunk-reload', '1')
+  window.location.reload()
+})
+
 export default router

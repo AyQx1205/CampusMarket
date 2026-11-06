@@ -5,6 +5,7 @@
 - 不使用 checkpointer：多轮记忆由 app/ai/memory.py 基于 Redis 自管
   （/ai/chat 每次把历史消息随输入传入，回复后写回）。
 - db/user 通过 config["configurable"] 注入工具链（见 tools._ctx）。
+- recursion_limit 限制单轮工具调用轮数，防止模型死循环消耗额度。
 """
 
 from langchain.agents import create_agent
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.llm import get_llm
 from app.ai.prompts import build_system_prompt
 from app.ai.tools import build_tools
+from app.core.config import settings
 from app.models import User
 
 
@@ -43,9 +45,17 @@ async def run_agent(
     agent = create_agent(
         get_llm(),
         tools=build_tools(),
-        system_prompt=build_system_prompt(is_senior=user.is_senior_mode),
+        system_prompt=build_system_prompt(
+            is_senior=user.is_senior_mode,
+            write_tools_enabled=settings.AI_ENABLE_WRITE_TOOLS,
+        ),
     )
-    config = {"configurable": {"db": db, "user": user}}
+    config = {
+        "configurable": {"db": db, "user": user},
+        # LangGraph 的 recursion_limit 统计图步数（模型 + 工具各算一步），
+        # 留出 2 步余量给最终回复
+        "recursion_limit": settings.AI_MAX_TOOL_ROUNDS * 2 + 2,
+    }
     result = await agent.ainvoke(
         {"messages": [*history, HumanMessage(content=message)]},
         config=config,

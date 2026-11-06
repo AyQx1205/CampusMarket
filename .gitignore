@@ -7,9 +7,13 @@
 **/__pycache__/
 **/*.py[cod]
 **/.env
+**/.env.local
+**/.env.*.local
 **/.pytest_cache/
 **/.mypy_cache/
 **/.ruff_cache/
+**/.coverage
+**/htmlcov/
 
 # ---- Node / 前端 ----
 **/node_modules/

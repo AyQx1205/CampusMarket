@@ -1,4 +1,4 @@
-/** 商品 API：搜索 / 详情 / 发布 / 更新 / 删除 / 热门榜 / 收藏动作（/api/v1/products）。 */
+/** 商品 API：搜索 / 详情 / 发布 / 更新 / 状态 / 删除 / 热门榜 / 收藏动作（/api/v1/products）。 */
 import { del, get, patch, post } from './request'
 
 import type { Page } from '@/types/api'
@@ -6,6 +6,7 @@ import type {
   ProductDetail,
   ProductPublishParams,
   ProductSearchParams,
+  ProductStatusUpdateParams,
   ProductUpdateParams,
 } from '@/types/product'
 
@@ -29,9 +30,17 @@ export function createProduct(params: ProductPublishParams): Promise<ProductDeta
   return post<ProductDetail>('/products', params)
 }
 
-/** 更新自己发布的商品（部分更新 + 状态流转） */
+/** 更新自己发布的商品（部分编辑，不含状态） */
 export function updateProduct(id: number, params: ProductUpdateParams): Promise<ProductDetail> {
   return patch<ProductDetail>(`/products/${id}`, params)
+}
+
+/** 上下架/标记已售（独立接口，避免普通编辑绕过订单状态机） */
+export function updateProductStatus(
+  id: number,
+  params: ProductStatusUpdateParams,
+): Promise<ProductDetail> {
+  return patch<ProductDetail>(`/products/${id}/status`, params)
 }
 
 /** 删除自己发布的商品（已有订单记录会被后端拒绝，提示改为下架） */
@@ -47,4 +56,9 @@ export function favoriteProduct(id: number): Promise<null> {
 /** 取消收藏 */
 export function unfavoriteProduct(id: number): Promise<null> {
   return del<null>(`/products/${id}/favorite`)
+}
+
+/** 当前用户是否已收藏该商品（替代拉取 100 条收藏列表的兜底做法） */
+export function getFavoriteStatus(id: number): Promise<{ favorited: boolean }> {
+  return get<{ favorited: boolean }>(`/products/${id}/favorite`)
 }

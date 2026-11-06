@@ -88,7 +88,18 @@ export interface ProductPublishParams {
   campus?: string
 }
 
-/** PATCH /products/{id}：允许部分更新，含状态流转 */
-export type ProductUpdateParams = Partial<ProductPublishParams> & {
-  status?: ProductStatus
+/** PATCH /products/{id}：允许部分编辑，不含状态（状态走独立接口） */
+export type ProductUpdateParams = Partial<ProductPublishParams>
+
+/** PATCH /products/{id}/status：卖家只能在这三种状态间切换 */
+export type ProductStatusUpdateParams = {
+  status: Extract<ProductStatus, 'on_sale' | 'off_shelf' | 'sold'>
+}
+
+/** 分类（GET /categories，对应后端 CategoryOut） */
+export interface Category {
+  id: number
+  name: string
+  parent_id: number | null
+  sort_order: number
 }

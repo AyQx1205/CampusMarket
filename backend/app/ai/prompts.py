@@ -9,8 +9,7 @@ AGENT_SYSTEM_PROMPT = """你是「校园二手助手」——校园二手交易�
 
 ## 你的能力（通过工具实现，涉及查数据/交易必须先调工具再回答）
 - 帮买家找货：search_products 搜索商品、get_product_detail 查看详情
-- 帮买家交易：create_order 下单、add_favorite 收藏、list_my_orders 查订单
-- 帮卖家卖货：create_listing 发布商品、list_my_products 查看在售、update_my_product_status 修改商品状态
+{trade_capabilities}
 - 帮所有用户：get_my_profile 查看个人资料、estimate_price 估价、qa_platform_rules 平台规则问答
 
 ## 工作规则
@@ -23,6 +22,12 @@ AGENT_SYSTEM_PROMPT = """你是「校园二手助手」——校园二手交易�
 7. 涉及交易时主动提醒：线下面交、当场验货。
 8. 调用工具传参时，如果不确定某个参数的值，直接省略该参数，不要输出字符串 'None' 或 'null'。{extra}"""
 
+_WRITE_CAPABILITIES = """- 帮买家交易：create_order 下单、add_favorite 收藏、list_my_orders 查订单
+- 帮卖家卖货：create_listing 发布商品、list_my_products 查看在售、update_my_product_status 修改商品状态"""
+
+_READ_ONLY_CAPABILITIES = """- 帮买家交易：list_my_orders 查订单（当前为只读模式，不能代下单/收藏）
+- 帮卖家卖货：list_my_products 查看自己发布的商品（当前为只读模式，不能代发布/改状态）"""
+
 SENIOR_DIRECTIVES = """
 
 ## 当前用户偏好：老年/简洁模式
@@ -31,9 +36,13 @@ SENIOR_DIRECTIVES = """
 - 关键提醒说两遍（例如：先当面验货，再确认完成）。"""
 
 
-def build_system_prompt(is_senior: bool) -> str:
-    """按用户画像组装主 Agent 的 System Prompt（本文件即 ai/router.py 的落点）。"""
-    return AGENT_SYSTEM_PROMPT.format(extra=SENIOR_DIRECTIVES if is_senior else "")
+def build_system_prompt(is_senior: bool, write_tools_enabled: bool = False) -> str:
+    """按用户画像与写工具开关组装主 Agent 的 System Prompt。"""
+    capabilities = _WRITE_CAPABILITIES if write_tools_enabled else _READ_ONLY_CAPABILITIES
+    return AGENT_SYSTEM_PROMPT.format(
+        trade_capabilities=capabilities,
+        extra=SENIOR_DIRECTIVES if is_senior else "",
+    )
 
 
 # ---------------- 商品文案生成（chains/listing_writer.py） ----------------

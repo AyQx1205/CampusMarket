@@ -1,5 +1,5 @@
 /** 认证 API：注册 / 登录 / 刷新 / 登出（/api/v1/auth）。 */
-import { del, post } from './request'
+import { post } from './request'
 
 import type { LoginParams, LoginResult, RegisterParams, UserProfile } from '@/types/user'
 
@@ -19,6 +19,7 @@ export function refreshToken(refreshToken: string): Promise<LoginResult> {
 }
 
 /** 登出：服务端吊销 refresh_token 白名单（jti），前端配合 clearTokens */
-export function logout(): Promise<null> {
-  return del<null>('/auth/logout')
+export function logout(refreshToken: string): Promise<null> {
+  // 登出不能把用户卡住：服务端无响应时最多等 10s，本地态随后照常清理
+  return post<null>('/auth/logout', { refresh_token: refreshToken }, { timeout: 10000 })
 }

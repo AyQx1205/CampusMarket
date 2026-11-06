@@ -13,7 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, PkMixin
 
 if TYPE_CHECKING:
-    from app.models.product import Product
+    from app.models.product import Product  # noqa: F401
 
 
 class Category(PkMixin, Base):

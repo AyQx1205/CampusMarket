@@ -1,30 +1,43 @@
 <script setup lang="ts">
-/** 我的收藏：网格展示（复用 ProductCard）+ 取消收藏。 */
-import { onMounted, ref } from 'vue'
+/** 我的收藏：网格展示（复用 ProductCard）+ 取消收藏 + 分页。 */
+import { onMounted, ref, watch } from 'vue'
 
 import { unfavoriteProduct } from '@/api/product'
 import { listFavorites, type FavoriteOut } from '@/api/favorite'
 import ProductCard from '@/components/product/ProductCard.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
+const PAGE_SIZE = 12
+
 const favorites = ref<FavoriteOut[]>([])
 const total = ref(0)
+const page = ref(1)
 const loading = ref(false)
 const failed = ref(false)
 /** 行级取消 loading */
 const removingId = ref<number | null>(null)
+/** 请求序号：翻页/重试过快时只接受最后一次响应 */
+let requestSeq = 0
 
 async function fetchFavorites(): Promise<void> {
+  const seq = ++requestSeq
   loading.value = true
   failed.value = false
   try {
-    const result = await listFavorites({ page: 1, page_size: 100 })
+    const result = await listFavorites({ page: page.value, page_size: PAGE_SIZE })
+    if (seq !== requestSeq) {
+      return
+    }
     favorites.value = result.items
     total.value = result.total
   } catch {
-    failed.value = true
+    if (seq === requestSeq) {
+      failed.value = true
+    }
   } finally {
-    loading.value = false
+    if (seq === requestSeq) {
+      loading.value = false
+    }
   }
 }
 
@@ -32,9 +45,12 @@ async function removeFavorite(item: FavoriteOut): Promise<void> {
   removingId.value = item.id
   try {
     await unfavoriteProduct(item.product.id)
-    // 本地移除，避免整页刷新
+    // 本地移除；当前页被清空时回退一页重新拉取
     favorites.value = favorites.value.filter((f) => f.id !== item.id)
-    total.value -= 1
+    total.value = Math.max(0, total.value - 1)
+    if (favorites.value.length === 0 && page.value > 1) {
+      page.value -= 1
+    }
   } catch {
     // 提示由拦截器弹出
   } finally {
@@ -46,6 +62,7 @@ function handleRetry(): void {
   fetchFavorites()
 }
 
+watch(page, fetchFavorites)
 onMounted(fetchFavorites)
 </script>
 
@@ -93,6 +110,17 @@ onMounted(fetchFavorites)
         </div>
       </div>
     </template>
+
+    <div v-if="!failed && total > PAGE_SIZE" class="pagination">
+      <el-pagination
+        v-model:current-page="page"
+        background
+        layout="prev, pager, next, total"
+        :total="total"
+        :page-size="PAGE_SIZE"
+        :disabled="loading"
+      />
+    </div>
   </div>
 </template>
 
@@ -133,6 +161,12 @@ h2 {
 
 .remove {
   align-self: center;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
 }
 
 .skeleton-item {

@@ -7,20 +7,21 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin
 
 if TYPE_CHECKING:
-    from app.models.product import Product
-    from app.models.user import User
+    from app.models.product import Product  # noqa: F401
+    from app.models.user import User  # noqa: F401
 
 
 class Favorite(PkMixin, Base):
     __tablename__ = "favorites"
     __table_args__ = (
         UniqueConstraint("user_id", "product_id", name="uq_favorites_user_id_product_id"),
+        Index("ix_favorites_user_created", "user_id", "created_at"),
         {"comment": "收藏表"},
     )
 

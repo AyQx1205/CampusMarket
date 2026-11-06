@@ -27,7 +27,8 @@ const aiStore = useAiStore()
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 1100;
+  /* 高于面板（1100），窄屏全屏时仍可点击收起 */
+  z-index: 1200;
   width: 52px;
   height: 52px;
   border: none;

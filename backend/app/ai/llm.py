@@ -42,10 +42,11 @@ def get_llm(temperature: float | None = None) -> ChatOpenAI:
 
     # 供应商私有参数统一在这个 dict 上合并（新增参数继续加 key，不要整体覆盖）
     extra_body: dict[str, Any] = {}
-    if settings.LLM_DISABLE_THINKING:
+    provider = f"{settings.OPENAI_BASE_URL} {settings.LLM_MODEL}".lower()
+    if settings.LLM_DISABLE_THINKING and ("dashscope" in provider or "qwen" in provider):
         # Qwen(DashScope) thinking 模式下拒绝 tool_choice="required"，
         # 而 with_structured_output(method="function_calling") 内部依赖它，
-        # 故按配置禁用 thinking；DeepSeek 等其他兼容服务会忽略该字段。
+        # 故只对 Qwen 发送 enable_thinking（其他供应商可能不认识该字段）。
         extra_body["enable_thinking"] = False
 
     return ChatOpenAI(
@@ -53,8 +54,10 @@ def get_llm(temperature: float | None = None) -> ChatOpenAI:
         api_key=settings.OPENAI_API_KEY,
         model=settings.LLM_MODEL,
         temperature=settings.LLM_TEMPERATURE if temperature is None else temperature,
-        timeout=60,
+        timeout=settings.LLM_TIMEOUT_SECONDS,
         max_retries=1,
+        # 限制单次输出，避免长回复拖慢接口/耗尽额度
+        max_tokens=settings.LLM_MAX_TOKENS,
         extra_body=extra_body,
     )
 

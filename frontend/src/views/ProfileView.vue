@@ -21,7 +21,7 @@ const form = reactive({
   campus: userStore.profile?.campus ?? '',
 })
 
-// profile 可能尚未加载（刷新后 hydrate 是同步的，persist 插件已恢复；兜底再拉一次）
+// profile 不持久化，刷新后可能尚未加载；兜底再拉一次并回填表单
 if (!userStore.profile) {
   userStore.fetchMe().then(() => {
     form.nickname = userStore.profile?.nickname ?? ''
@@ -95,13 +95,13 @@ async function toggleSeniorMode(enabled: boolean | string | number): Promise<voi
           <el-input v-model="form.nickname" maxlength="30" show-word-limit />
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" placeholder="用于找回密码" clearable />
+          <el-input v-model="form.email" placeholder="用于找回密码" maxlength="128" clearable />
         </el-form-item>
         <el-form-item label="手机号" prop="phone">
-          <el-input v-model="form.phone" placeholder="方便买家联系你" clearable />
+          <el-input v-model="form.phone" placeholder="方便买家联系你" maxlength="11" clearable />
         </el-form-item>
         <el-form-item label="校区" prop="campus">
-          <el-input v-model="form.campus" placeholder="如：东校区" clearable />
+          <el-input v-model="form.campus" placeholder="如：东校区" maxlength="64" clearable />
         </el-form-item>
         <el-button class="submit" type="primary" :loading="submitting" @click="handleSave">
           保存修改
@@ -113,7 +113,7 @@ async function toggleSeniorMode(enabled: boolean | string | number): Promise<voi
       <div class="senior-row">
         <div>
           <p class="senior-title">长辈模式</p>
-          <p class="senior-desc">开启后 AI 助手会用更大字号提示、更耐心的说法帮你操作</p>
+          <p class="senior-desc">开启后 AI 助手会用更短的句子、更耐心的说法帮你操作</p>
         </div>
         <el-switch
           :model-value="userStore.isSeniorMode"

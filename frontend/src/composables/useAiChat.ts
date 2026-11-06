@@ -55,6 +55,11 @@ export function useAiChat() {
     aiStore.togglePanel()
   }
 
+  /** 开启新会话：清空本地消息并换 session_id（旧 Redis 记忆按 TTL 自然过期） */
+  function reset(): void {
+    aiStore.resetSession()
+  }
+
   return {
     draft,
     messages,
@@ -65,6 +70,7 @@ export function useAiChat() {
     send,
     sendQuick,
     retry,
+    reset,
     toggle,
   }
 }

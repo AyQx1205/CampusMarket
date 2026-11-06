@@ -1,23 +1,31 @@
 <script setup lang="ts">
 /** 我的商品：表格管理自己发布的商品（编辑 / 上下架 / 删除）。 */
-import { computed, onMounted, reactive, ref } from 'vue'
-import type { FormInstance } from 'element-plus'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessageBox } from 'element-plus'
 
-import { deleteProduct, updateProduct } from '@/api/product'
+import { listCategories } from '@/api/category'
+import { deleteProduct, updateProduct, updateProductStatus } from '@/api/product'
 import { listUserProducts } from '@/api/user'
 import { useUserStore } from '@/stores/user'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { formatPrice, formatTime } from '@/utils/format'
-import type { ProductDetail } from '@/types/product'
+import { STATUS_LABELS, type Category, type ProductDetail } from '@/types/product'
+
+const PAGE_SIZE = 10
 
 const userStore = useUserStore()
 
 const products = ref<ProductDetail[]>([])
+const total = ref(0)
+const page = ref(1)
 const loading = ref(false)
 const failed = ref(false)
 /** 行级操作 loading */
 const actingId = ref<number | null>(null)
+const categories = ref<Category[]>([])
+/** 请求序号：翻页/重试过快时只接受最后一次响应 */
+let requestSeq = 0
 
 async function fetchProducts(): Promise<void> {
   if (!userStore.profile?.id) {
@@ -27,17 +35,43 @@ async function fetchProducts(): Promise<void> {
   if (!userId) {
     return
   }
+  const seq = ++requestSeq
   loading.value = true
   failed.value = false
   try {
-    const result = await listUserProducts(userId, { page: 1, page_size: 100 })
+    const result = await listUserProducts(userId, {
+      page: page.value,
+      page_size: PAGE_SIZE,
+    })
+    if (seq !== requestSeq) {
+      return
+    }
     products.value = result.items
+    total.value = result.total
   } catch {
-    failed.value = true
+    if (seq === requestSeq) {
+      failed.value = true
+    }
   } finally {
-    loading.value = false
+    if (seq === requestSeq) {
+      loading.value = false
+    }
   }
 }
+
+async function fetchCategories(): Promise<void> {
+  try {
+    categories.value = await listCategories()
+  } catch {
+    categories.value = []
+  }
+}
+
+watch(page, fetchProducts)
+onMounted(() => {
+  fetchProducts()
+  fetchCategories()
+})
 
 const inSaleCount = computed(() => products.value.filter((p) => p.status === 'on_sale').length)
 
@@ -52,8 +86,40 @@ const editForm = reactive({
   description: '',
   price: undefined as number | undefined,
   originalPrice: undefined as number | undefined,
+  categoryId: undefined as number | undefined,
   campus: '',
 })
+
+const editRules: FormRules = {
+  title: [
+    { required: true, message: '请输入商品标题', trigger: 'blur' },
+    { max: 128, message: '标题不能超过 128 字', trigger: 'blur' },
+  ],
+  price: [
+    { required: true, message: '请输入售价', trigger: 'blur' },
+    { type: 'number', min: 0.01, message: '售价必须大于 0', trigger: 'blur' },
+  ],
+  originalPrice: [
+    {
+      validator: (
+        _rule: unknown,
+        value: number | undefined,
+        callback: (error?: string | Error) => void,
+      ) => {
+        if (typeof value === 'number' && typeof editForm.price === 'number' && value < editForm.price) {
+          callback(new Error('原价不能低于售价'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+}
+
+function canEdit(product: ProductDetail): boolean {
+  return product.status !== 'reserved' && product.status !== 'sold'
+}
 
 function openEditDialog(product: ProductDetail): void {
   editingId.value = product.id
@@ -61,6 +127,7 @@ function openEditDialog(product: ProductDetail): void {
   editForm.description = product.description ?? ''
   editForm.price = Number(product.price)
   editForm.originalPrice = product.original_price ? Number(product.original_price) : undefined
+  editForm.categoryId = product.category_id ?? undefined
   editForm.campus = product.campus ?? ''
   editDialogVisible.value = true
 }
@@ -77,6 +144,7 @@ async function submitEdit(): Promise<void> {
       description: editForm.description.trim() || undefined,
       price: editForm.price as number,
       original_price: editForm.originalPrice,
+      category_id: editForm.categoryId || undefined,
       campus: editForm.campus.trim() || undefined,
     })
     // 原地替换，避免整页刷新
@@ -99,7 +167,7 @@ async function toggleStatus(product: ProductDetail): Promise<void> {
   const next = product.status === 'on_sale' ? 'off_shelf' : 'on_sale'
   actingId.value = product.id
   try {
-    const updated = await updateProduct(product.id, { status: next })
+    const updated = await updateProductStatus(product.id, { status: next })
     const index = products.value.findIndex((p) => p.id === updated.id)
     if (index >= 0) {
       products.value[index] = updated
@@ -125,6 +193,10 @@ async function removeProduct(product: ProductDetail): Promise<void> {
   try {
     await deleteProduct(product.id)
     products.value = products.value.filter((p) => p.id !== product.id)
+    total.value = Math.max(0, total.value - 1)
+    if (products.value.length === 0 && page.value > 1) {
+      page.value -= 1
+    }
   } catch {
     // 如「已有订单记录」提示由拦截器弹出
   } finally {
@@ -135,15 +207,13 @@ async function removeProduct(product: ProductDetail): Promise<void> {
 function handleRetry(): void {
   fetchProducts()
 }
-
-onMounted(fetchProducts)
 </script>
 
 <template>
   <div class="my-products">
     <div class="head">
       <h2>我的商品</h2>
-      <span v-if="!failed && !loading" class="count">在售 {{ inSaleCount }} / 共 {{ products.length }}</span>
+      <span v-if="!failed && !loading" class="count">本页在售 {{ inSaleCount }} / 共 {{ total }} 件</span>
     </div>
 
     <EmptyState
@@ -157,7 +227,14 @@ onMounted(fetchProducts)
       <el-table-column label="商品" min-width="220">
         <template #default="{ row }">
           <div class="product-cell">
-            <img v-if="row.images.length" :src="row.images[0]" class="thumb" :alt="row.title" />
+            <img
+              v-if="row.images.length"
+              :src="row.images[0]"
+              class="thumb"
+              :alt="row.title"
+              loading="lazy"
+              referrerpolicy="no-referrer"
+            />
             <div v-else class="thumb placeholder">无图</div>
             <span class="title">{{ row.title }}</span>
           </div>
@@ -171,7 +248,7 @@ onMounted(fetchProducts)
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
           <el-tag :type="row.status === 'on_sale' ? 'success' : 'info'" effect="light">
-            {{ row.status === 'on_sale' ? '在售' : row.status === 'sold' ? '已售出' : row.status === 'reserved' ? '已预订' : '已下架' }}
+            {{ STATUS_LABELS[row.status] }}
           </el-tag>
         </template>
       </el-table-column>
@@ -180,7 +257,14 @@ onMounted(fetchProducts)
       </el-table-column>
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" @click="openEditDialog(row as ProductDetail)">编辑</el-button>
+          <el-button
+            size="small"
+            :disabled="!canEdit(row as ProductDetail)"
+            :title="canEdit(row as ProductDetail) ? '' : '已预订/已售出商品不可编辑'"
+            @click="openEditDialog(row as ProductDetail)"
+          >
+            编辑
+          </el-button>
           <el-button
             v-if="row.status === 'on_sale' || row.status === 'off_shelf'"
             size="small"
@@ -205,23 +289,50 @@ onMounted(fetchProducts)
       </template>
     </el-table>
 
+    <div v-if="!failed && total > PAGE_SIZE" class="pagination">
+      <el-pagination
+        v-model:current-page="page"
+        background
+        layout="prev, pager, next, total"
+        :total="total"
+        :page-size="PAGE_SIZE"
+        :disabled="loading"
+      />
+    </div>
+
     <!-- 编辑对话框 -->
     <el-dialog v-model="editDialogVisible" title="编辑商品" width="480px">
-      <el-form ref="editFormRef" :model="editForm" label-position="top">
-        <el-form-item label="标题" required>
+      <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-position="top">
+        <el-form-item label="标题" prop="title">
           <el-input v-model="editForm.title" maxlength="128" show-word-limit />
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="editForm.description" type="textarea" :rows="3" />
+          <el-input
+            v-model="editForm.description"
+            type="textarea"
+            :rows="3"
+            maxlength="5000"
+            show-word-limit
+          />
         </el-form-item>
-        <el-form-item label="售价（元）" required>
+        <el-form-item label="售价（元）" prop="price">
           <el-input-number v-model="editForm.price" :min="0.01" :precision="2" :controls="false" />
         </el-form-item>
-        <el-form-item label="原价（选填）">
-          <el-input-number v-model="editForm.originalPrice" :min="0" :precision="2" :controls="false" />
+        <el-form-item label="原价（选填）" prop="originalPrice">
+          <el-input-number
+            v-model="editForm.originalPrice"
+            :min="0.01"
+            :precision="2"
+            :controls="false"
+          />
+        </el-form-item>
+        <el-form-item label="分类（选填）">
+          <el-select v-model="editForm.categoryId" placeholder="选择分类" clearable class="full">
+            <el-option v-for="c in categories" :key="c.id" :value="c.id" :label="c.name" />
+          </el-select>
         </el-form-item>
         <el-form-item label="校区（选填）">
-          <el-input v-model="editForm.campus" />
+          <el-input v-model="editForm.campus" maxlength="64" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -290,5 +401,15 @@ h2 {
 .price {
   font-weight: 600;
   color: var(--color-primary);
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.full {
+  width: 100%;
 }
 </style>

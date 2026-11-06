@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     ForeignKey,
     Index,
     Integer,
@@ -24,16 +25,27 @@ from app.db.base import Base, PkMixin, TimestampMixin
 from app.models.enums import ProductCondition, ProductStatus, pg_enum
 
 if TYPE_CHECKING:
-    from app.models.category import Category
-    from app.models.favorite import Favorite
-    from app.models.user import User
+    from app.models.favorite import Favorite  # noqa: F401
+    from app.models.user import User  # noqa: F401
 
 
 class Product(PkMixin, TimestampMixin, Base):
     __tablename__ = "products"
     __table_args__ = (
+        CheckConstraint("price > 0", name="price_positive"),
+        CheckConstraint(
+            "original_price IS NULL OR original_price >= price",
+            name="original_price_gte_price",
+        ),
+        CheckConstraint("view_count >= 0", name="view_count_non_negative"),
+        CheckConstraint(
+            "favorite_count >= 0", name="favorite_count_non_negative"
+        ),
         # 列表页核心查询：分类 + 状态 + 时间排序
         Index("ix_products_category_status_created", "category_id", "status", "created_at"),
+        # 首页无分类筛选 / 热门榜回源的查询路径
+        Index("ix_products_status_created", "status", "created_at"),
+        Index("ix_products_status_view", "status", "view_count"),
         Index("ix_products_price", "price"),
         Index("ix_products_campus", "campus"),
         # 模糊搜索走 pg_trgm GIN 索引（0001 迁移中已 CREATE EXTENSION pg_trgm）

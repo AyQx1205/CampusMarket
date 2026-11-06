@@ -21,11 +21,17 @@ const form = reactive({
 })
 
 const rules: FormRules = {
-  studentNo: [{ required: true, message: '请输入学号', trigger: 'blur' }],
-  nickname: [{ required: true, message: '请输入昵称', trigger: 'blur' }],
+  studentNo: [
+    { required: true, message: '请输入学号', trigger: 'blur' },
+    { min: 4, max: 32, message: '学号长度 4~32 位', trigger: 'blur' },
+  ],
+  nickname: [
+    { required: true, message: '请输入昵称', trigger: 'blur' },
+    { max: 64, message: '昵称最长 64 字', trigger: 'blur' },
+  ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 32, message: '密码长度 6~32 位', trigger: 'blur' },
+    { min: 8, max: 64, message: '密码长度 8~64 位', trigger: 'blur' },
   ],
   confirmPassword: [
     { required: true, message: '请再次输入密码', trigger: 'blur' },
@@ -83,13 +89,19 @@ async function handleSubmit(): Promise<void> {
         @submit.prevent="handleSubmit"
       >
         <el-form-item label="学号" prop="studentNo">
-          <el-input v-model="form.studentNo" placeholder="请输入学号" clearable />
+          <el-input v-model="form.studentNo" placeholder="请输入学号" maxlength="32" clearable />
         </el-form-item>
         <el-form-item label="昵称" prop="nickname">
-          <el-input v-model="form.nickname" placeholder="给自己起个名字" clearable />
+          <el-input v-model="form.nickname" placeholder="给自己起个名字" maxlength="64" clearable />
         </el-form-item>
         <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" placeholder="6~32 位" show-password />
+          <el-input
+            v-model="form.password"
+            type="password"
+            placeholder="8~64 位，建议字母 + 数字"
+            show-password
+            maxlength="64"
+          />
         </el-form-item>
         <el-form-item label="确认密码" prop="confirmPassword">
           <el-input
@@ -97,10 +109,11 @@ async function handleSubmit(): Promise<void> {
             type="password"
             placeholder="再输入一次"
             show-password
+            maxlength="64"
           />
         </el-form-item>
         <el-form-item label="邮箱（选填）" prop="email">
-          <el-input v-model="form.email" placeholder="用于找回密码" clearable />
+          <el-input v-model="form.email" placeholder="用于找回密码" maxlength="128" clearable />
         </el-form-item>
         <el-form-item label="手机号（选填）" prop="phone">
           <el-input v-model="form.phone" placeholder="方便买家联系你" clearable />

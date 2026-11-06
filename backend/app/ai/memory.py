@@ -1,8 +1,9 @@
 """AI 会话记忆(Redis,多轮对话)。
 
-- key 统一引用 core.redis_client.RedisKeys.AI_CHAT_MEMORY（模板唯一出口）。
+- key 统一引用 core/redis_client.RedisKeys.AI_CHAT_MEMORY（模板唯一出口）。
 - Redis LIST 存最近 N 轮消息（JSON：{"role","content"}），N = AI_MEMORY_MAX_ROUNDS。
-- 每次写入用 pipeline 同时 rpush + ltrim + expire（TTL 24h 滚动刷新）。
+- 每次写入用 pipeline 同时 rpush + ltrim + expire（TTL 由配置控制、滚动刷新）。
+- 单条内容与总历史字符数都有上限，防止超长消息把 Redis/LLM 上下文撑爆。
 - Redis 故障时降级为无记忆，不影响单轮对话。
 """
 
@@ -14,7 +15,7 @@ from loguru import logger
 from redis.exceptions import RedisError
 
 from app.core.config import settings
-from app.core.redis_client import RedisKeys, RedisTTL, get_redis
+from app.core.redis_client import RedisKeys, get_redis
 
 Role = Literal["user", "assistant"]
 
@@ -25,18 +26,25 @@ def _key(user_id: int, session_id: str) -> str:
 
 def _max_messages() -> int:
     """最多保留的消息条数（1 轮 = 1 条 user + 1 条 assistant）。"""
-    return settings.AI_MEMORY_MAX_ROUNDS * 2
+    return max(2, settings.AI_MEMORY_MAX_ROUNDS * 2)
+
+
+def _ttl_seconds() -> int:
+    return max(60, settings.AI_MEMORY_TTL_HOURS * 3600)
 
 
 async def append_message(user_id: int, session_id: str, role: Role, content: str) -> None:
     """追加一条消息并刷新 TTL；超长自动裁剪；故障降级为丢弃。"""
+    if not content:
+        return
+    content = content[: settings.AI_MEMORY_MAX_CHARS]
     try:
         redis = get_redis()
         payload = json.dumps({"role": role, "content": content}, ensure_ascii=False)
         pipe = redis.pipeline()
         pipe.rpush(_key(user_id, session_id), payload)
         pipe.ltrim(_key(user_id, session_id), -_max_messages(), -1)
-        pipe.expire(_key(user_id, session_id), RedisTTL.AI_CHAT_MEMORY)
+        pipe.expire(_key(user_id, session_id), _ttl_seconds())
         await pipe.execute()
     except RedisError as exc:
         logger.warning("AI 记忆写入失败(降级): {}", exc)
@@ -56,6 +64,8 @@ async def load_history(user_id: int, session_id: str) -> list[BaseMessage]:
             data = json.loads(raw)
         except (TypeError, ValueError):
             continue  # 脏数据直接跳过
+        if not isinstance(data, dict):
+            continue
         role, content = data.get("role"), data.get("content", "")
         if not content:
             continue
@@ -63,7 +73,18 @@ async def load_history(user_id: int, session_id: str) -> list[BaseMessage]:
             messages.append(HumanMessage(content=str(content)))
         elif role == "assistant":
             messages.append(AIMessage(content=str(content)))
-    return messages[-_max_messages():]
+
+    # 先按条数截断，再从后往前按字符预算保留（最近的对话优先）
+    messages = messages[-_max_messages():]
+    budget = settings.AI_MEMORY_MAX_CHARS
+    kept: list[BaseMessage] = []
+    for message in reversed(messages):
+        size = len(str(message.content))
+        if budget - size < 0 and kept:
+            break
+        budget -= size
+        kept.append(message)
+    return list(reversed(kept))
 
 
 async def clear_memory(user_id: int, session_id: str) -> None:

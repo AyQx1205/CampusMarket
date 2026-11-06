@@ -1,4 +1,5 @@
 import type { ProductBrief } from './product'
+import type { OrderContact } from './user'
 
 /** 订单状态（与后端 OrderStatus 枚举 value 对齐） */
 export type OrderStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled'
@@ -21,7 +22,7 @@ export interface OrderCreateParams {
 /** GET /orders 查询角色：我买到的 / 我卖出的 */
 export type OrderRole = 'buyer' | 'seller'
 
-/** 订单信息（对应后端 OrderOut，amount 为两位小数字符串） */
+/** 订单基础信息（对应后端 OrderOut，amount 为两位小数字符串） */
 export interface OrderOut {
   id: number
   order_no: string
@@ -33,8 +34,15 @@ export interface OrderOut {
   trade_location: string | null
   remark: string | null
   created_at: string
+  updated_at: string
   finished_at: string | null
   product: ProductBrief | null
+}
+
+/** 订单列表/详情（对应后端 OrderDetailOut，附带交易对手联系方式） */
+export interface OrderDetail extends OrderOut {
+  buyer: OrderContact
+  seller: OrderContact
 }
 
 /** PATCH /orders/{id}/status 请求体 */

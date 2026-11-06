@@ -1,4 +1,7 @@
-"""收藏服务。"""
+"""收藏服务。
+
+事务：写操作显式 commit，再失效商品详情缓存；缓存失败只告警。
+"""
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,22 +14,30 @@ from app.schemas.favorite import FavoriteOut
 from app.services import cache_service
 
 
+async def is_favorited(db: AsyncSession, user: User, product_id: int) -> bool:
+    """单查收藏状态，替代前端「拉 100 条收藏列表再 includes」的兜底做法。"""
+    return await favorite_crud.get(db, user.id, product_id) is not None
+
+
 async def add_favorite(db: AsyncSession, user: User, product_id: int) -> None:
     product = await product_crud.get_by_id(db, product_id)
     if product is None:
         raise NotFoundError("商品不存在")
-    # 先查一次给出干净提示；并发下仍可能双双通过，由唯一约束兜底（见下）
+    # 先查一次给出干净提示；并发下仍可能双双通过，由唯一约束兜底
     if await favorite_crud.get(db, user.id, product_id):
         raise ConflictError("已收藏该商品")
 
     try:
         await favorite_crud.add(db, user.id, product_id)
     except IntegrityError:
-        # (user_id, product_id) 唯一约束冲突 = 并发重复收藏，
-        # 转成业务冲突（409）而不是让 IntegrityError 冒泡成 500
+        # (user_id, product_id) 唯一约束冲突 = 并发重复收藏；
+        # 先回滚失败的 flush，避免同一 session 后续查询触发 PendingRollbackError
+        # （AI Agent 会捕获业务异常后继续使用同一个 session）。
+        await db.rollback()
         raise ConflictError("已收藏该商品") from None
 
     await product_crud.adjust_favorite_count(db, product_id, 1)
+    await db.commit()
     await cache_service.invalidate_product_detail(product_id)
 
 
@@ -35,8 +46,10 @@ async def remove_favorite(db: AsyncSession, user: User, product_id: int) -> None
     if favorite is None:
         raise NotFoundError("尚未收藏该商品")
 
-    await favorite_crud.remove(db, favorite)
-    await product_crud.adjust_favorite_count(db, product_id, -1)
+    removed = await favorite_crud.remove(db, favorite)
+    if removed:
+        await product_crud.adjust_favorite_count(db, product_id, -1)
+    await db.commit()
     await cache_service.invalidate_product_detail(product_id)
 
 

@@ -17,7 +17,7 @@ from app.db.base import Base, PkMixin, TimestampMixin
 from app.models.enums import ChatRole, pg_enum
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    from app.models.user import User  # noqa: F401
 
 
 class ChatSession(PkMixin, TimestampMixin, Base):

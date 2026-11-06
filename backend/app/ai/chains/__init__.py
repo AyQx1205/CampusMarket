@@ -8,6 +8,8 @@
 
 from typing import Any
 
+import math
+
 # LLM 常见的「空值」字面量（英文不区分大小写）
 _EMPTY_TOKENS = {"none", "null", "n/a", "无", "空"}
 
@@ -28,7 +30,7 @@ def parse_price(v: Any) -> Any:
     if v is None:
         return None
     if isinstance(v, (int, float)):
-        return float(v)
+        return float(v) if math.isfinite(float(v)) else None
     if isinstance(v, str):
         s = v.strip()
         if _is_empty_text(s):
@@ -39,7 +41,8 @@ def parse_price(v: Any) -> Any:
         if not s:
             return None
         try:
-            return float(s)
+            value = float(s)
+            return value if math.isfinite(value) else None
         except ValueError:
             return None
     return v

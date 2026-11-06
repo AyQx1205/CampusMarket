@@ -38,11 +38,21 @@ async def get_by_id_for_update(db: AsyncSession, product_id: int) -> Product | N
     return result.scalar_one_or_none()
 
 
+def _escape_like(value: str) -> str:
+    """转义 LIKE 通配符，避免用户输入 % / _ 把检索放大成全表扫描。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _apply_filters(stmt: select, params: ProductSearchParams) -> select:
     if params.keyword:
         # ilike '%kw%' 可命中 pg_trgm GIN 索引（gin_trgm_ops）
-        kw = f"%{params.keyword}%"
-        stmt = stmt.where(or_(Product.title.ilike(kw), Product.description.ilike(kw)))
+        kw = f"%{_escape_like(params.keyword)}%"
+        stmt = stmt.where(
+            or_(
+                Product.title.ilike(kw, escape="\\"),
+                Product.description.ilike(kw, escape="\\"),
+            )
+        )
     if params.category_id is not None:
         stmt = stmt.where(Product.category_id == params.category_id)
     if params.min_price is not None:
@@ -93,13 +103,14 @@ async def delete(db: AsyncSession, product: Product) -> None:
     await db.flush()
 
 
-async def increment_view(db: AsyncSession, product_id: int) -> None:
-    """浏览量 +1（原子自增，不加载 ORM 对象）。"""
-    await db.execute(
+async def increment_view(db: AsyncSession, product_id: int) -> bool:
+    """浏览量 +1（原子自增，不加载 ORM 对象）；返回是否命中了商品。"""
+    result = await db.execute(
         update(Product)
         .where(Product.id == product_id)
         .values(view_count=Product.view_count + 1)
     )
+    return bool(result.rowcount)
 
 
 async def adjust_favorite_count(db: AsyncSession, product_id: int, delta: int) -> None:
@@ -131,9 +142,14 @@ async def list_by_seller(
 
 
 async def get_many_by_ids(db: AsyncSession, ids: list[int]) -> list[Product]:
+    """按 id 批量取「在售」商品（热门榜过滤已下架/已售）。"""
     if not ids:
         return []
-    result = await db.execute(select(Product).where(Product.id.in_(ids)))
+    result = await db.execute(
+        select(Product).where(
+            Product.id.in_(ids), Product.status == ProductStatus.ON_SALE
+        )
+    )
     return list(result.scalars().all())
 
 

@@ -19,8 +19,13 @@ const markdownHtml = computed(() => {
   if (props.message.role !== 'assistant' || props.message.status !== 'done') {
     return ''
   }
-  // marked v14 同步模式；DOMPurify 清掉脚本/事件属性后再 v-html
-  return DOMPurify.sanitize(marked.parse(props.message.content, { async: false }))
+  // marked v14 同步模式；DOMPurify 清掉脚本/事件属性后再 v-html。
+  // 禁用图片/iframe/form：AI 回复不需要，避免外链追踪像素与表单钓鱼。
+  const raw = marked.parse(props.message.content, { async: false }) as string
+  return DOMPurify.sanitize(raw, {
+    FORBID_TAGS: ['img', 'iframe', 'form', 'input', 'button', 'object', 'embed'],
+    FORBID_ATTR: ['style'],
+  })
 })
 
 /** 网络错误（无业务码）才给重试按钮；5001/503 只展示文案 */

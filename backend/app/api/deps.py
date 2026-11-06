@@ -29,7 +29,11 @@ async def get_current_user(
     if payload.get("type") != "access":
         raise UnauthorizedError("请使用 access token 访问")
 
-    user = await user_crud.get_by_id(db, int(str(payload["sub"])))
+    try:
+        user_id = int(str(payload["sub"]))
+    except (TypeError, ValueError) as exc:
+        raise UnauthorizedError("登录凭证无效") from exc
+    user = await user_crud.get_by_id(db, user_id)
     if user is None or not user.is_active:
         raise UnauthorizedError("用户不存在或已被禁用")
     return user

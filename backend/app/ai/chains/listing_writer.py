@@ -14,9 +14,9 @@ from app.models.enums import ProductCondition
 class ListingDraft(BaseModel):
     """生成的商品文案草稿（发布前仍由卖家确认/修改）。"""
 
-    title: str = Field(max_length=128, description="商品标题（建议不超过 30 字）")
-    description: str = Field(description="商品描述")
-    highlights: list[str] = Field(default_factory=list, description="卖点短语")
+    title: str = Field(min_length=1, max_length=128, description="商品标题（建议不超过 30 字）")
+    description: str = Field(min_length=1, max_length=5000, description="商品描述")
+    highlights: list[str] = Field(default_factory=list, max_length=6, description="卖点短语")
     condition: ProductCondition = Field(description="推断的成色")
 
     @field_validator("highlights", mode="before")
@@ -39,4 +39,8 @@ async def generate_listing(
         condition_hint=condition_hint or "未提供",
     )
     structured = get_structured_llm(ListingDraft)
-    return await structured.ainvoke(prompt)
+    draft = await structured.ainvoke(prompt)
+    if draft is None:
+        # 部分供应商在 function_calling 下可能返回空结果
+        raise ValueError("LLM 未返回结构化商品文案")
+    return draft

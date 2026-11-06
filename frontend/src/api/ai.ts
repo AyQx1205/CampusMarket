@@ -14,17 +14,18 @@ import type {
   ListingDraftResult,
 } from '@/types/ai'
 
-/** 多轮对话：session_id 由前端生成（web-{userId}-{timestamp}）并复用 */
+/** 多轮对话：session_id 由前端生成（web-{userId}-{timestamp}）并复用。
+ *  Agent 可能串行调用多个工具，单独放宽超时（普通接口 60s）。 */
 export function chat(params: ChatParams): Promise<ChatResult> {
-  return post<ChatResult>('/ai/chat', params)
+  return post<ChatResult>('/ai/chat', params, { timeout: 120000 })
 }
 
 /** 卖家文案生成：原始描述 → 结构化草稿（发布前仍由卖家确认） */
 export function generateListing(params: ListingDraftParams): Promise<ListingDraftResult> {
-  return post<ListingDraftResult>('/ai/listing/generate', params)
+  return post<ListingDraftResult>('/ai/listing/generate', params, { timeout: 120000 })
 }
 
 /** 自然语言搜索：LLM 解析筛选条件并直接返回分页结果 */
 export function aiSearch(query: string): Promise<AiSearchResult> {
-  return post<AiSearchResult>('/ai/search', { query })
+  return post<AiSearchResult>('/ai/search', { query }, { timeout: 120000 })
 }

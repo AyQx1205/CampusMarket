@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 商品详情：图集轮播 + 商品信息 + 卖家卡 + 购买/收藏动作 + 返回顶部。 */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ChatDotRound, Goods, Star, StarFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -8,44 +8,106 @@ import { ElMessage } from 'element-plus'
 import { createOrder } from '@/api/order'
 import {
   favoriteProduct,
+  getFavoriteStatus,
   getProductDetail,
   unfavoriteProduct,
 } from '@/api/product'
-import { listFavorites } from '@/api/favorite'
+import { getUser } from '@/api/user'
 import EmptyState from '@/components/common/EmptyState.vue'
+import { useAiStore } from '@/stores/ai'
 import { useUserStore } from '@/stores/user'
 import { conditionLabel, formatPrice, formatTime } from '@/utils/format'
-import type { ProductDetail } from '@/types/product'
+import { STATUS_LABELS, type ProductDetail } from '@/types/product'
+import type { UserPublic } from '@/types/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const aiStore = useAiStore()
 
-const productId = Number(route.params.id)
+/** route.params.id 是响应式的；用 computed 保证详情页之间跳转也能重新加载 */
+const productId = computed(() => Number(route.params.id))
 const product = ref<ProductDetail | null>(null)
+const seller = ref<UserPublic | null>(null)
 const loading = ref(true)
 const failed = ref(false)
 
 const isOwner = computed(() => userStore.isLoggedIn && userStore.profile?.id === product.value?.seller_id)
 /** 只有在售商品可下单 */
 const canBuy = computed(() => product.value?.status === 'on_sale' && !isOwner.value)
+/** 按钮禁用原因：区分「自己的商品」和「状态不可下单」 */
+const buyHint = computed(() => {
+  if (isOwner.value) {
+    return '不能购买自己发布的商品'
+  }
+  switch (product.value?.status) {
+    case 'reserved':
+      return '商品已被预订'
+    case 'sold':
+      return '商品已售出'
+    case 'off_shelf':
+      return '商品已下架'
+    default:
+      return '当前状态不可下单'
+  }
+})
 const isFavorited = ref(false)
 const favoriteLoading = ref(false)
 
-async function fetchProduct(): Promise<void> {
-  loading.value = true
-  failed.value = false
+async function fetchFavoriteStatus(id: number): Promise<void> {
+  if (!userStore.isLoggedIn) {
+    isFavorited.value = false
+    return
+  }
+  // 收藏状态是独立接口：即使它失败，也不能把整个商品页标记为加载失败
   try {
-    product.value = await getProductDetail(productId)
-    if (userStore.isLoggedIn) {
-      // 后端暂无「是否已收藏」单查接口，用收藏列表兜底判断（超出首页 100 条的极端情况忽略）
-      const favorites = await listFavorites({ page: 1, page_size: 100 })
-      isFavorited.value = favorites.items.some((f) => f.product.id === productId)
+    const result = await getFavoriteStatus(id)
+    if (id === productId.value) {
+      isFavorited.value = result.favorited
     }
   } catch {
+    isFavorited.value = false
+  }
+}
+
+async function fetchSeller(id: number): Promise<void> {
+  try {
+    const result = await getUser(id)
+    if (id === productId.value) {
+      seller.value = result
+    }
+  } catch {
+    seller.value = null
+  }
+}
+
+async function fetchProduct(): Promise<void> {
+  const id = productId.value
+  if (!Number.isInteger(id) || id <= 0) {
     failed.value = true
-  } finally {
     loading.value = false
+    return
+  }
+  loading.value = true
+  failed.value = false
+  seller.value = null
+  try {
+    const detail = await getProductDetail(id)
+    if (id !== productId.value) {
+      return
+    }
+    product.value = detail
+    // 收藏状态与卖家资料互不依赖，并行加载
+    void fetchFavoriteStatus(id)
+    void fetchSeller(detail.seller_id)
+  } catch {
+    if (id === productId.value) {
+      failed.value = true
+    }
+  } finally {
+    if (id === productId.value) {
+      loading.value = false
+    }
   }
 }
 
@@ -67,19 +129,25 @@ async function toggleFavorite(): Promise<void> {
     return
   }
   favoriteLoading.value = true
+  const id = product.value.id
   try {
     if (isFavorited.value) {
-      await unfavoriteProduct(productId)
+      await unfavoriteProduct(id)
       isFavorited.value = false
-      product.value.favorite_count -= 1
+      product.value.favorite_count = Math.max(0, product.value.favorite_count - 1)
     } else {
-      await favoriteProduct(productId)
+      await favoriteProduct(id)
       isFavorited.value = true
       product.value.favorite_count += 1
     }
   } catch {
     // 失败提示由拦截器弹出；计数以服务端为准，这里回拉一次
-    product.value = await getProductDetail(productId)
+    try {
+      product.value = await getProductDetail(id)
+      void fetchFavoriteStatus(id)
+    } catch {
+      // 回拉失败保持当前页面，不把整页切成错误态
+    }
   } finally {
     favoriteLoading.value = false
   }
@@ -124,11 +192,24 @@ async function submitOrder(): Promise<void> {
   }
 }
 
-/** 问问 AI 助手（第 5 轮接入 AI 面板） */
+/** 问问 AI 助手：把当前商品作为上下文发给助手，并打开全局面板 */
 function askAi(): void {
-  console.log('[AI] ask about product', productId, product.value?.title)
+  if (!product.value || !requireLogin()) {
+    return
+  }
+  if (aiStore.sending) {
+    ElMessage.info('助手正在回复上一条消息，请稍候')
+    return
+  }
+  aiStore.isOpen = true
+  const question =
+    `我想了解这件商品：${product.value.title}，售价 ${formatPrice(product.value.price)}，` +
+    `成色「${conditionLabel(product.value.condition)}」，校区 ${product.value.campus ?? '未填写'}。` +
+    '能帮我分析是否值得买、交易时要注意什么吗？'
+  void aiStore.sendMessage(question)
 }
 
+watch(productId, fetchProduct)
 onMounted(fetchProduct)
 </script>
 
@@ -157,7 +238,13 @@ onMounted(fetchProduct)
             indicator-position="outside"
           >
             <el-carousel-item v-for="(img, i) in product.images" :key="i">
-              <img class="gallery-img" :src="img" :alt="product.title" />
+              <img
+                class="gallery-img"
+                :src="img"
+                :alt="product.title"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+              />
             </el-carousel-item>
           </el-carousel>
           <div v-else class="gallery-placeholder">
@@ -181,7 +268,7 @@ onMounted(fetchProduct)
             <el-tag type="success" effect="light">{{ conditionLabel(product.condition) }}</el-tag>
             <el-tag v-if="product.campus" type="info" effect="light">{{ product.campus }}</el-tag>
             <el-tag v-if="product.status !== 'on_sale'" type="warning" effect="light">
-              {{ product.status === 'sold' ? '已售出' : product.status === 'reserved' ? '已预订' : '已下架' }}
+              {{ STATUS_LABELS[product.status] }}
             </el-tag>
           </div>
 
@@ -194,10 +281,7 @@ onMounted(fetchProduct)
           <p v-if="product.description" class="description">{{ product.description }}</p>
 
           <div class="actions">
-            <el-tooltip
-              :content="isOwner ? '不能购买自己发布的商品' : '当前状态不可下单'"
-              :disabled="canBuy"
-            >
+            <el-tooltip :content="buyHint" :disabled="canBuy">
               <span>
                 <el-button type="primary" size="large" :disabled="!canBuy" @click="openOrderDialog">
                   立即购买
@@ -224,11 +308,17 @@ onMounted(fetchProduct)
             <el-button size="large" :icon="ChatDotRound" @click="askAi">问问 AI 助手</el-button>
           </div>
 
-          <!-- 卖家卡：后端暂无公开用户信息接口，先展示 ID + 交易校区，昵称/信用分待接口就绪补齐 -->
+          <!-- 卖家卡：公开资料（昵称/头像/校区/信用分），联系方式需在下单后查看 -->
           <div class="seller-card">
-            <el-avatar :size="40" />
+            <el-avatar :size="40" :src="seller?.avatar_url ?? undefined">
+              {{ seller?.nickname?.slice(0, 1) ?? '卖' }}
+            </el-avatar>
             <div class="seller-info">
-              <p class="seller-name">卖家 #{{ product.seller_id }}</p>
+              <p class="seller-name">{{ seller?.nickname ?? `卖家 #${product.seller_id}` }}</p>
+              <p class="seller-tip">
+                {{ seller?.campus ?? product.campus ?? '校区未填写' }} · 信用分
+                {{ seller?.credit_score ?? '—' }}
+              </p>
               <p class="seller-tip">校园当面交易，请当面验货后再确认</p>
             </div>
           </div>
@@ -242,7 +332,7 @@ onMounted(fetchProduct)
             <span class="order-product">{{ product.title }} · {{ formatPrice(product.price) }}</span>
           </el-form-item>
           <el-form-item label="交易地点">
-            <el-input v-model="orderForm.trade_location" placeholder="如：东校区图书馆门口" />
+            <el-input v-model="orderForm.trade_location" placeholder="如：东校区图书馆门口" maxlength="128" />
           </el-form-item>
           <el-form-item label="给卖家留言（选填）">
             <el-input

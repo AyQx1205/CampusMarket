@@ -4,6 +4,7 @@ import { get, patch, post } from './request'
 import type { Page } from '@/types/api'
 import type {
   OrderCreateParams,
+  OrderDetail,
   OrderOut,
   OrderRole,
   OrderStatusUpdateParams,
@@ -18,14 +19,19 @@ export function createOrder(params: OrderCreateParams): Promise<OrderOut> {
 export function listOrders(
   role: OrderRole,
   params: { page?: number; page_size?: number } = {},
-): Promise<Page<OrderOut>> {
-  return get<Page<OrderOut>>('/orders', { params: { role, ...params } })
+): Promise<Page<OrderDetail>> {
+  return get<Page<OrderDetail>>('/orders', { params: { role, ...params } })
+}
+
+/** 订单详情（含交易对手联系方式） */
+export function getOrder(orderId: number): Promise<OrderDetail> {
+  return get<OrderDetail>(`/orders/${orderId}`)
 }
 
 /** 更新订单状态（流转合法性由服务端状态机校验） */
 export function updateOrderStatus(
   orderId: number,
   params: OrderStatusUpdateParams,
-): Promise<OrderOut> {
-  return patch<OrderOut>(`/orders/${orderId}/status`, params)
+): Promise<OrderDetail> {
+  return patch<OrderDetail>(`/orders/${orderId}/status`, params)
 }

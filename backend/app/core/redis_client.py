@@ -18,8 +18,10 @@ class RedisKeys:
     PRODUCT_DETAIL = "product:detail:{product_id}"
     # 热门商品榜 ZSet（member=product_id, score=浏览量）
     PRODUCT_HOT = "product:hot"
-    # 滑动窗口限流
-    RATE_LIMIT = "rate:{user_id}:{path}"
+    # 固定窗口限流（scope 如 login / register / ai:chat）
+    RATE_LIMIT = "rate:{scope}:{identity}"
+    # AI 每日配额
+    AI_DAILY_QUOTA = "quota:ai:day:{user_id}:{date}"
     # Refresh Token 白名单（jti -> user_id）
     AUTH_REFRESH = "auth:refresh:{jti}"
     # AI 会话记忆，TTL 24h，只保留最近 N 轮
@@ -30,8 +32,10 @@ class RedisTTL:
     """各 key 的默认 TTL（秒）。"""
 
     PRODUCT_DETAIL = 300
-    AUTH_REFRESH = 7 * 24 * 3600  # 与 REFRESH_TOKEN_EXPIRE_DAYS 对齐
-    AI_CHAT_MEMORY = 24 * 3600
+    # 与 JWT/会话配置对齐，避免改了过期时间但白名单仍旧 7 天
+    AUTH_REFRESH = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
+    AI_CHAT_MEMORY = settings.AI_MEMORY_TTL_HOURS * 3600
+
 
 _pool: ConnectionPool | None = None
 
@@ -44,6 +48,10 @@ def _get_pool() -> ConnectionPool:
             settings.REDIS_URL,
             max_connections=settings.REDIS_MAX_CONNECTIONS,
             decode_responses=True,  # 统一返回 str，避免业务层到处 decode
+            # Redis 故障时快速失败：限流/缓存是旁路，不应把请求线程拖死
+            socket_connect_timeout=settings.REDIS_SOCKET_TIMEOUT,
+            socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
+            health_check_interval=30,
         )
     return _pool
 
